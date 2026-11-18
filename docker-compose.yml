@@ -1,0 +1,12 @@
+services:
+  fluxo:
+    build: .
+    container_name: olimpogym-fluxo
+    restart: unless-stopped
+    env_file: .env
+    # só acessível pelo próprio servidor; o nginx/apache publica em dashboard.olimpogym.com.br com HTTPS
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
