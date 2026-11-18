@@ -17,7 +17,7 @@ export default async function Login({ searchParams }: { searchParams: SP }) {
       <main className="login-centro">
         <img src="/logo.png" alt="Olimpo Gym" className="login-logo" width={120} height={92} />
         <div className="login-cartao">
-          <h1>Fluxo de caixa Olimpo Gym</h1>
+          <h1>Sistema gerenciador de caixa - Olimpo Gym</h1>
           {erro && (
             <div className="login-erro" role="alert">
               {erro}
