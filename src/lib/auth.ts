@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb, type Papel } from "./db";
 import { conferirSenha, hashSenha, hashToken, novoToken } from "./senhas";
-import { unidadesDoUsuario } from "./usuarios";
+import { buscarParaLogin, normalizarUsuario, unidadesDoUsuario } from "./usuarios";
 
 const COOKIE = "olimpo_sessao";
 const DURACAO_DIAS = 30;
@@ -12,6 +12,7 @@ export interface Usuario {
   id: number;
   nome: string;
   email: string;
+  usuario: string | null;
   papel: Papel;
 }
 
@@ -23,14 +24,16 @@ export function garantirAdmin(): void {
   const email = process.env.ADMIN_EMAIL;
   const senha = process.env.ADMIN_PASSWORD;
   if (!email || !senha) return;
-  db.prepare("INSERT INTO usuarios (nome, email, senha_hash, papel) VALUES (?, ?, ?, 'admin')").run(
+  const usuario = normalizarUsuario(process.env.ADMIN_USUARIO || "admin").valor;
+  db.prepare("INSERT INTO usuarios (nome, email, usuario, senha_hash, papel) VALUES (?, ?, ?, ?, 'admin')").run(
     process.env.ADMIN_NOME || "Administrador",
     email,
+    usuario,
     hashSenha(senha),
   );
 }
 
-// Limite simples de tentativas de login por e-mail (em memória).
+// Limite simples de tentativas de login por usuário/e-mail (em memória).
 const tentativas = new Map<string, { n: number; ate: number }>();
 
 export function loginBloqueado(email: string): boolean {
@@ -46,19 +49,21 @@ function registrarFalha(email: string) {
   else t.n++;
 }
 
-export async function entrar(email: string, senha: string): Promise<boolean> {
+/**
+ * Faz login pelo e-mail ou pelo nome de usuário.
+ * Com "lembrar", a sessão dura 30 dias; sem, o cookie some ao fechar o navegador (e expira em 12 h no servidor).
+ */
+export async function entrar(identificador: string, senha: string, lembrar = true): Promise<boolean> {
   garantirAdmin();
   const db = getDb();
-  const u = db.prepare("SELECT id, senha_hash FROM usuarios WHERE email = ? AND ativo = 1").get(email.trim()) as
-    | { id: number; senha_hash: string }
-    | undefined;
+  const u = buscarParaLogin(db, identificador);
   if (!u || !conferirSenha(senha, u.senha_hash)) {
-    registrarFalha(email);
+    registrarFalha(identificador);
     return false;
   }
-  tentativas.delete(email.toLowerCase());
+  tentativas.delete(identificador.toLowerCase());
   const token = novoToken();
-  const expira = new Date(Date.now() + DURACAO_DIAS * 86_400_000);
+  const expira = new Date(Date.now() + (lembrar ? DURACAO_DIAS * 86_400_000 : 12 * 3_600_000));
   db.prepare("DELETE FROM sessoes WHERE expira_em < datetime('now')").run();
   db.prepare("INSERT INTO sessoes (token_hash, usuario_id, expira_em) VALUES (?, ?, ?)").run(
     hashToken(token),
@@ -70,7 +75,7 @@ export async function entrar(email: string, senha: string): Promise<boolean> {
     sameSite: "lax",
     secure: process.env.COOKIE_SECURE !== "false" && process.env.NODE_ENV === "production",
     path: "/",
-    expires: expira,
+    ...(lembrar ? { expires: expira } : {}),
   });
   return true;
 }
@@ -87,7 +92,7 @@ export async function usuarioAtual(): Promise<Usuario | null> {
   if (!token) return null;
   return (
     (getDb()
-      .prepare(`SELECT u.id, u.nome, u.email, u.papel FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
+      .prepare(`SELECT u.id, u.nome, u.email, u.usuario, u.papel FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
         WHERE s.token_hash = ? AND s.expira_em > datetime('now') AND u.ativo = 1`)
       .get(hashToken(token)) as Usuario | undefined) ?? null
   );

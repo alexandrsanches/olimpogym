@@ -10,7 +10,8 @@ export default async function Conta({ searchParams }: { searchParams: SP }) {
       <Mensagens sp={sp} />
       <h1>Minha conta</h1>
       <p className="muted">
-        {ctx.usuario.nome} · {ctx.usuario.email} · {NOMES_PAPEL[ctx.usuario.papel]} · unidades: {ctx.unidades.map((u) => u.nome).join(", ") || "nenhuma"}
+        {ctx.usuario.nome} · {ctx.usuario.email}
+        {ctx.usuario.usuario ? ` · usuário: ${ctx.usuario.usuario}` : ""} · {NOMES_PAPEL[ctx.usuario.papel]} · unidades: {ctx.unidades.map((u) => u.nome).join(", ") || "nenhuma"}
       </p>
       <div className="card" style={{ maxWidth: 420 }}>
         <h2>Trocar senha</h2>

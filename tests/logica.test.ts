@@ -16,7 +16,7 @@ import {
 } from "@/lib/lancamentos";
 import { definirSaldoInicial, fluxoDiario, pendencias, porCategoria, projecoes, resumoPeriodo, saldoRealizadoAte } from "@/lib/fluxo";
 import { gerarCSV, interpretarRelatorio, lerCSV } from "@/lib/planilha";
-import { atualizarUsuario, criarUsuario, redefinirSenha, trocarPropriaSenha, unidadesDoUsuario } from "@/lib/usuarios";
+import { atualizarUsuario, buscarParaLogin, criarUsuario, redefinirSenha, trocarPropriaSenha, unidadesDoUsuario } from "@/lib/usuarios";
 import { conferirSenha } from "@/lib/senhas";
 
 const novoBanco = () => abrirBanco(":memory:");
@@ -193,6 +193,21 @@ describe("importação de relatório (Octagym) e exportação", () => {
 });
 
 describe("usuários e permissões", () => {
+  it("entra pelo e-mail ou pelo nome de usuário", () => {
+    const db = novoBanco();
+    expect(criarUsuario(db, { nome: "Rec", email: "rec@x.com", usuario: "Recepcao", senha: "senha-forte-9", papel: "leitura", unidades: [1] })).toBeNull();
+    expect(buscarParaLogin(db, "recepcao")?.id).toBe(1); // guardado em minúsculas
+    expect(buscarParaLogin(db, "RECEPCAO")?.id).toBe(1);
+    expect(buscarParaLogin(db, " REC@X.COM ")?.id).toBe(1);
+    expect(buscarParaLogin(db, "outra")).toBeUndefined();
+    expect(criarUsuario(db, { nome: "B", email: "b@x.com", usuario: "recepcao", senha: "senha-forte-9", papel: "leitura", unidades: [1] })).toMatch(/em uso/);
+    expect(criarUsuario(db, { nome: "B", email: "b@x.com", usuario: "a b", senha: "senha-forte-9", papel: "leitura", unidades: [1] })).toMatch(/3 a 30/);
+    expect(atualizarUsuario(db, 1, { papel: "leitura", ativo: true, unidades: [1], usuario: "" })).toBeNull();
+    expect(buscarParaLogin(db, "recepcao")).toBeUndefined(); // usuário removido: só o e-mail funciona
+    atualizarUsuario(db, 1, { papel: "leitura", ativo: false, unidades: [1] });
+    expect(buscarParaLogin(db, "rec@x.com")).toBeUndefined(); // inativo não entra
+  });
+
   it("valida, mantém um admin e encerra sessões", () => {
     const db = novoBanco();
     expect(criarUsuario(db, { nome: "Dono", email: "dono@x.com", senha: "curta", papel: "admin", unidades: [] })).toMatch(/10 caracteres/);

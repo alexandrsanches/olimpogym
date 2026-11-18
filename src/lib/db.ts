@@ -100,6 +100,13 @@ const MIGRACOES: string[] = [
     ('Mensalidades','receita'), ('Planos','receita'), ('Avulsos / Diárias','receita'),
     ('Produtos','receita'), ('Outras receitas','receita');
   `,
+  // 2: login também pelo nome de usuário
+  `
+  ALTER TABLE usuarios ADD COLUMN usuario TEXT COLLATE NOCASE;
+  CREATE UNIQUE INDEX idx_usuarios_usuario ON usuarios(usuario);
+  -- o primeiro administrador já existente passa a entrar também como "admin"
+  UPDATE usuarios SET usuario = 'admin' WHERE id = (SELECT MIN(id) FROM usuarios WHERE papel = 'admin');
+  `,
 ];
 
 export function migrar(db: Database.Database): void {

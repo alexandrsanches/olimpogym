@@ -87,7 +87,7 @@ para `http://127.0.0.1:3000` nesse proxy.
 
 ### 5. Primeiro acesso
 
-1. Entre em `https://dashboard.olimpogym.com.br` com o e-mail e a senha do `.env`.
+1. Entre em `https://contas.olimpogym.com.br` com o usuário `admin` (ou o e-mail do `.env`) e a senha do `.env`.
 2. **Minha conta** → troque a senha.
 3. **Configurações** → renomeie as unidades e informe o **saldo inicial** de cada conta (saldo do extrato numa data).
 4. **Usuários** → crie os acessos (editor / somente leitura) e marque as unidades de cada um.

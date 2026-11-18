@@ -32,10 +32,11 @@ import { atualizarUsuario, criarUsuario, redefinirSenha, trocarPropriaSenha } fr
 // ---------- sessão ----------
 
 export async function acaoEntrar(fd: FormData) {
-  const email = txt(fd, "email");
+  const login = txt(fd, "login");
   const senha = typeof fd.get("senha") === "string" ? (fd.get("senha") as string) : "";
-  if (loginBloqueado(email)) voltar("/login", "erro", "Muitas tentativas. Aguarde 15 minutos.");
-  if (!(await entrar(email, senha))) voltar("/login", "erro", "E-mail ou senha incorretos.");
+  if (!login || !senha) voltar("/login", "erro", "Informe usuário ou e-mail e a senha.");
+  if (loginBloqueado(login)) voltar("/login", "erro", "Muitas tentativas. Aguarde 15 minutos.");
+  if (!(await entrar(login, senha, txt(fd, "lembrar") === "1"))) voltar("/login", "erro", "Usuário/e-mail ou senha incorretos.");
   redirect("/");
 }
 
@@ -239,6 +240,7 @@ export async function acaoCriarUsuario(fd: FormData) {
   const erro = criarUsuario(getDb(), {
     nome: txt(fd, "nome"),
     email: txt(fd, "email"),
+    usuario: txt(fd, "usuario"),
     senha: (fd.get("senha") as string) ?? "",
     papel: txt(fd, "papel") as Papel,
     unidades: nums(fd, "unidades"),
@@ -251,7 +253,7 @@ export async function acaoAtualizarUsuario(fd: FormData) {
   await exigirAdmin();
   const id = num(fd, "id");
   if (!id) voltar("/usuarios", "erro", "Usuário inválido.");
-  const erro = atualizarUsuario(getDb(), id, { papel: txt(fd, "papel") as Papel, ativo: txt(fd, "ativo") === "1", unidades: nums(fd, "unidades") });
+  const erro = atualizarUsuario(getDb(), id, { papel: txt(fd, "papel") as Papel, ativo: txt(fd, "ativo") === "1", unidades: nums(fd, "unidades"), usuario: txt(fd, "usuario") });
   if (erro) voltar("/usuarios", "erro", erro);
   voltar("/usuarios", "ok", "Usuário atualizado.");
 }

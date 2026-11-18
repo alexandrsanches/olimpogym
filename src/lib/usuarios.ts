@@ -8,6 +8,7 @@ export interface UsuarioLista {
   id: number;
   nome: string;
   email: string;
+  usuario: string | null;
   papel: Papel;
   ativo: number;
   criado_em: string;
@@ -17,7 +18,7 @@ export interface UsuarioLista {
 
 export function listarUsuarios(db: Database.Database): UsuarioLista[] {
   const linhas = db
-    .prepare(`SELECT u.id, u.nome, u.email, u.papel, u.ativo, u.criado_em, GROUP_CONCAT(uu.unidade_id) AS uns
+    .prepare(`SELECT u.id, u.nome, u.email, u.usuario, u.papel, u.ativo, u.criado_em, GROUP_CONCAT(uu.unidade_id) AS uns
       FROM usuarios u LEFT JOIN usuario_unidades uu ON uu.usuario_id = u.id
       GROUP BY u.id ORDER BY u.ativo DESC, u.nome`)
     .all() as (Omit<UsuarioLista, "unidades"> & { uns: string | null })[];
@@ -43,7 +44,32 @@ function emailValido(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-export function criarUsuario(db: Database.Database, d: { nome: string; email: string; senha: string; papel: Papel; unidades: number[] }): string | null {
+/** Nome de usuário: 3 a 30 caracteres, letras minúsculas, números, ponto, hífen ou sublinhado. */
+export function normalizarUsuario(usuario: string | null | undefined): { valor: string | null; erro?: string } {
+  const v = (usuario ?? "").trim().toLowerCase();
+  if (!v) return { valor: null };
+  if (!/^[a-z0-9._-]{3,30}$/.test(v)) return { valor: null, erro: "Usuário deve ter de 3 a 30 caracteres: letras sem acento, números, ponto, hífen ou sublinhado." };
+  return { valor: v };
+}
+
+function usuarioEmUso(db: Database.Database, usuario: string, exceto: number | null): boolean {
+  // um nome de usuário não pode coincidir com o usuário nem com o e-mail de outra pessoa
+  return !!db.prepare("SELECT 1 FROM usuarios WHERE (usuario = @u OR email = @u) AND id IS NOT @exceto").get({ u: usuario, exceto });
+}
+
+/** Encontra a conta ativa pelo e-mail ou pelo nome de usuário (sem diferenciar maiúsculas). */
+export function buscarParaLogin(db: Database.Database, identificador: string): { id: number; senha_hash: string } | undefined {
+  const v = identificador.trim();
+  if (!v) return undefined;
+  return db.prepare("SELECT id, senha_hash FROM usuarios WHERE ativo = 1 AND (email = @v OR usuario = @v)").get({ v }) as
+    | { id: number; senha_hash: string }
+    | undefined;
+}
+
+export function criarUsuario(
+  db: Database.Database,
+  d: { nome: string; email: string; usuario?: string | null; senha: string; papel: Papel; unidades: number[] },
+): string | null {
   if (!d.nome.trim()) return "Informe o nome.";
   if (!emailValido(d.email.trim())) return "E-mail inválido.";
   if (!PAPEIS.includes(d.papel)) return "Permissão inválida.";
@@ -51,9 +77,14 @@ export function criarUsuario(db: Database.Database, d: { nome: string; email: st
   if (erroSenha) return erroSenha;
   const existe = db.prepare("SELECT 1 FROM usuarios WHERE email = ?").get(d.email.trim());
   if (existe) return "Já existe um usuário com esse e-mail.";
+  const usuario = normalizarUsuario(d.usuario);
+  if (usuario.erro) return usuario.erro;
+  if (usuario.valor && usuarioEmUso(db, usuario.valor, null)) return "Esse nome de usuário já está em uso.";
   if (d.papel !== "admin" && d.unidades.length === 0) return "Escolha pelo menos uma unidade.";
   db.transaction(() => {
-    const r = db.prepare("INSERT INTO usuarios (nome, email, senha_hash, papel) VALUES (?, ?, ?, ?)").run(d.nome.trim(), d.email.trim(), hashSenha(d.senha), d.papel);
+    const r = db
+      .prepare("INSERT INTO usuarios (nome, email, usuario, senha_hash, papel) VALUES (?, ?, ?, ?, ?)")
+      .run(d.nome.trim(), d.email.trim(), usuario.valor, hashSenha(d.senha), d.papel);
     definirUnidades(db, Number(r.lastInsertRowid), d.unidades);
   })();
   return null;
@@ -64,15 +95,23 @@ function adminsAtivos(db: Database.Database, excetoId: number): number {
 }
 
 /** Altera permissão e/ou status. Impede que o sistema fique sem nenhum administrador ativo. */
-export function atualizarUsuario(db: Database.Database, id: number, d: { papel: Papel; ativo: boolean; unidades: number[] }): string | null {
+export function atualizarUsuario(
+  db: Database.Database,
+  id: number,
+  d: { papel: Papel; ativo: boolean; unidades: number[]; usuario?: string | null },
+): string | null {
   if (!PAPEIS.includes(d.papel)) return "Permissão inválida.";
   const atual = db.prepare("SELECT papel, ativo FROM usuarios WHERE id = ?").get(id) as { papel: Papel; ativo: number } | undefined;
   if (!atual) return "Usuário não encontrado.";
   const deixaDeSerAdmin = atual.papel === "admin" && atual.ativo === 1 && (d.papel !== "admin" || !d.ativo);
   if (deixaDeSerAdmin && adminsAtivos(db, id) === 0) return "É preciso manter pelo menos um administrador ativo.";
   if (d.papel !== "admin" && d.unidades.length === 0) return "Escolha pelo menos uma unidade.";
+  const usuario = d.usuario === undefined ? undefined : normalizarUsuario(d.usuario);
+  if (usuario?.erro) return usuario.erro;
+  if (usuario?.valor && usuarioEmUso(db, usuario.valor, id)) return "Esse nome de usuário já está em uso.";
   db.transaction(() => {
     db.prepare("UPDATE usuarios SET papel = ?, ativo = ? WHERE id = ?").run(d.papel, d.ativo ? 1 : 0, id);
+    if (usuario) db.prepare("UPDATE usuarios SET usuario = ? WHERE id = ?").run(usuario.valor, id);
     definirUnidades(db, id, d.unidades);
     if (!d.ativo) db.prepare("DELETE FROM sessoes WHERE usuario_id = ?").run(id);
   })();

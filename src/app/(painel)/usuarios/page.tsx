@@ -37,8 +37,12 @@ export default async function Usuarios({ searchParams }: { searchParams: SP }) {
             <input name="nome" required maxLength={100} />
           </label>
           <label>
-            E-mail (login)
+            E-mail
             <input name="email" type="email" required autoComplete="off" />
+          </label>
+          <label>
+            Usuário (opcional, para entrar sem o e-mail)
+            <input name="usuario" maxLength={30} pattern="[A-Za-z0-9._\-]{3,30}" placeholder="ex.: recepcao" autoComplete="off" />
           </label>
           <label>
             Senha inicial (mín. 10 caracteres)
@@ -88,10 +92,20 @@ export default async function Usuarios({ searchParams }: { searchParams: SP }) {
                     <strong>{u.nome}</strong>
                     {u.id === ctx.usuario.id && <span className="muted"> (você)</span>}
                     <div className="muted small">{u.email}</div>
+                    {u.usuario && <div className="muted small">usuário: {u.usuario}</div>}
                   </td>
                   <td>
                     <form action={acaoAtualizarUsuario} className="acoes">
                       <input type="hidden" name="id" value={u.id} />
+                      <input
+                        name="usuario"
+                        defaultValue={u.usuario ?? ""}
+                        maxLength={30}
+                        pattern="[A-Za-z0-9._\-]{3,30}"
+                        placeholder="usuário"
+                        aria-label="Nome de usuário"
+                        style={{ width: 130 }}
+                      />
                       <select name="papel" defaultValue={u.papel} aria-label="Permissão">
                         {PAPEIS.map((p) => (
                           <option key={p} value={p}>
