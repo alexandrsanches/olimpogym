@@ -1,7 +1,8 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# o better-sqlite3 já traz o binário pronto (prebuilds/); não é preciso compilar
+RUN npm ci --ignore-scripts --no-audit --no-fund
 
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
