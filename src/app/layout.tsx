@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "OlimpoGym · Fluxo de caixa",
+  title: "Olimpo Gym · Fluxo de caixa",
   description: "Controle de contas a pagar, recebimentos e fluxo de caixa da OlimpoGym",
   robots: { index: false, follow: false },
 };

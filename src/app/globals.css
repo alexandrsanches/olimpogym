@@ -4,7 +4,7 @@
   --text: #1c2230;
   --muted: #667085;
   --border: #e3e6ec;
-  --brand: #b8860b;
+  --brand: #e10600;
   --brand-text: #ffffff;
   --receita: #12805c;
   --despesa: #c2410c;
@@ -21,8 +21,8 @@
     --text: #e7e9ee;
     --muted: #9aa3b2;
     --border: #2c3240;
-    --brand: #d4a72c;
-    --brand-text: #1b1f29;
+    --brand: #ff3b30;
+    --brand-text: #ffffff;
     --receita: #4ccf9a;
     --despesa: #f08a5d;
     --perigo: #ff7b72;
@@ -58,7 +58,22 @@ h2 { font-size: 1.05rem; margin: 0 0 12px; }
   max-width: 1200px; margin: 0 auto; padding: 10px 16px;
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
 }
-.marca { font-weight: 700; text-decoration: none; color: var(--brand); white-space: nowrap; }
+.marca { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.1rem; text-decoration: none; color: var(--brand); white-space: nowrap; }
+.marca img { height: 30px; width: auto; display: block; }
+
+/* menu suspenso (Administração) */
+.menu { position: relative; }
+.menu > summary { list-style: none; cursor: pointer; padding: 6px 10px; border-radius: 8px; color: var(--muted); user-select: none; }
+.menu > summary::-webkit-details-marker { display: none; }
+.menu > summary::after { content: " ▾"; font-size: 0.8em; }
+.menu > summary:hover, .menu[open] > summary { background: var(--bg); color: var(--text); }
+.menu-itens {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 10; min-width: 190px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); padding: 6px; display: grid;
+}
+.nav .menu-itens a { color: var(--text); padding: 8px 10px; }
+.nav .menu-itens a:hover { background: var(--bg); }
 .nav { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
 .nav a { text-decoration: none; padding: 6px 10px; border-radius: 8px; color: var(--muted); }
 .nav a:hover { background: var(--bg); color: var(--text); }
@@ -130,4 +145,9 @@ details > summary { cursor: pointer; color: var(--muted); }
 @media print {
   .topo, .filtros, .acoes, form { display: none !important; }
   body { background: #fff; }
+}
+
+@media (max-width: 640px) {
+  .topo-in { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .nav { width: 100%; }
 }

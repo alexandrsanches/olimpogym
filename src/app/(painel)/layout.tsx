@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { acaoSair } from "../acoes";
 import { exigirContexto, NOMES_PAPEL } from "@/lib/auth";
+import { MenuAdmin } from "./menu-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,8 @@ export default async function PainelLayout({ children }: { children: React.React
       <header className="topo">
         <div className="topo-in">
           <Link href="/" className="marca">
-            OlimpoGym
+            <img src="/logo.png" alt="" width={39} height={30} />
+            Olimpo Gym
           </Link>
           <nav className="nav">
             <Link href="/">Painel</Link>
@@ -21,8 +23,7 @@ export default async function PainelLayout({ children }: { children: React.React
             <Link href="/lancamentos?tipo=receita">Recebimentos</Link>
             {ctx.podeEditar && <Link href="/lancamentos/novo">+ Lançar</Link>}
             {ctx.podeEditar && <Link href="/importar">Importar Octagym</Link>}
-            {usuario.papel === "admin" && <Link href="/configuracoes">Configurações</Link>}
-            {usuario.papel === "admin" && <Link href="/usuarios">Usuários</Link>}
+            {usuario.papel === "admin" && <MenuAdmin />}
           </nav>
           <div className="usuario">
             <Link href="/conta" title="Minha conta">

@@ -12,7 +12,10 @@ export default async function Login({ searchParams }: { searchParams: SP }) {
   return (
     <div className="login">
       <div className="card">
-        <h1 style={{ color: "var(--brand)" }}>OlimpoGym</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <img src="/logo.png" alt="" width={52} height={40} />
+          <h1 style={{ color: "var(--brand)", margin: 0 }}>Olimpo Gym</h1>
+        </div>
         <p className="muted" style={{ marginTop: 0 }}>Fluxo de caixa</p>
         <Mensagens sp={sp} />
         <form action={acaoEntrar}>
