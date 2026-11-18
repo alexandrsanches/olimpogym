@@ -20,6 +20,7 @@ import {
   importarReceitas,
   obterLancamento,
   reabrir,
+  renomearCategoria,
   salvarUnidade,
   type Lancamento,
 } from "@/lib/lancamentos";
@@ -184,6 +185,16 @@ export async function acaoCriarCategoria(fd: FormData) {
   criarCategoria(getDb(), nome, tipo);
   revalidatePath("/", "layout");
   voltar("/configuracoes", "ok", "Categoria salva.");
+}
+
+export async function acaoRenomearCategoria(fd: FormData) {
+  await exigirAdmin();
+  const id = num(fd, "id");
+  if (!id) voltar("/configuracoes", "erro", "Categoria inválida.");
+  const erro = renomearCategoria(getDb(), id, txt(fd, "nome"));
+  if (erro) voltar("/configuracoes", "erro", erro);
+  revalidatePath("/", "layout");
+  voltar("/configuracoes", "ok", "Categoria renomeada.");
 }
 
 export async function acaoAlternarCategoria(fd: FormData) {

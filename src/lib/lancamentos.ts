@@ -98,6 +98,18 @@ export function criarCategoria(db: Database.Database, nome: string, tipo: Tipo):
   db.prepare("INSERT INTO categorias (nome, tipo) VALUES (?, ?) ON CONFLICT(nome, tipo) DO UPDATE SET ativo = 1").run(nome.trim(), tipo);
 }
 
+/** Renomeia a categoria. Os lançamentos ligados a ela passam a mostrar o nome novo. */
+export function renomearCategoria(db: Database.Database, id: number, nome: string): string | null {
+  const n = nome.trim().slice(0, 60);
+  if (!n) return "Informe o nome da categoria.";
+  const cat = db.prepare("SELECT tipo FROM categorias WHERE id = ?").get(id) as { tipo: Tipo } | undefined;
+  if (!cat) return "Categoria não encontrada.";
+  const existe = db.prepare("SELECT 1 FROM categorias WHERE nome = ? AND tipo = ? AND id <> ?").get(n, cat.tipo, id);
+  if (existe) return `Já existe uma categoria de ${cat.tipo} com esse nome.`;
+  db.prepare("UPDATE categorias SET nome = ? WHERE id = ?").run(n, id);
+  return null;
+}
+
 export function alternarCategoria(db: Database.Database, id: number): void {
   db.prepare("UPDATE categorias SET ativo = 1 - ativo WHERE id = ?").run(id);
 }

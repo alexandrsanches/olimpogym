@@ -12,6 +12,7 @@ import {
   listarCategorias,
   listarLancamentos,
   reabrir,
+  renomearCategoria,
 } from "@/lib/lancamentos";
 import { definirSaldoInicial, fluxoDiario, pendencias, porCategoria, projecoes, resumoPeriodo, saldoRealizadoAte } from "@/lib/fluxo";
 import { gerarCSV, interpretarRelatorio, lerCSV } from "@/lib/planilha";
@@ -63,6 +64,19 @@ describe("lançamentos", () => {
 
     expect(excluirLancamento(db, ids[0], "futuros")).toEqual([]);
     expect(listarLancamentos(db, { unidades: [1, 2] }).map((x) => x.id)).toEqual([ids[1]]); // a paga fica
+  });
+
+  it("renomeia categoria sem duplicar nome do mesmo tipo", () => {
+    const db = novoBanco();
+    const cats = listarCategorias(db, "despesa");
+    const luz = cats.find((c) => c.nome === "Energia / Água")!.id;
+    const [id] = criarLancamento(db, { unidade_id: 1, tipo: "despesa", descricao: "Luz", categoria_id: luz, valor_centavos: 100, vencimento: "2026-03-01" });
+    expect(renomearCategoria(db, luz, "Aluguel")).toMatch(/Já existe/);
+    expect(renomearCategoria(db, luz, "  ")).toMatch(/Informe/);
+    expect(renomearCategoria(db, luz, "Contas de consumo")).toBeNull();
+    expect(listarLancamentos(db, { unidades: U }).find((l) => l.id === id)!.categoria_nome).toBe("Contas de consumo");
+    // mesmo nome em tipo diferente é permitido
+    expect(renomearCategoria(db, luz, "Mensalidades")).toBeNull();
   });
 
   it("dar baixa e reabrir", () => {

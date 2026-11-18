@@ -1,4 +1,4 @@
-import { acaoAlternarCategoria, acaoAlternarUnidade, acaoCriarCategoria, acaoSaldoInicial, acaoSalvarUnidade } from "../../acoes";
+import { acaoAlternarCategoria, acaoAlternarUnidade, acaoRenomearCategoria, acaoCriarCategoria, acaoSaldoInicial, acaoSalvarUnidade } from "../../acoes";
 import { exigirContexto } from "@/lib/auth";
 import { formatData } from "@/lib/datas";
 import { getDb } from "@/lib/db";
@@ -99,7 +99,13 @@ export default async function Configuracoes({ searchParams }: { searchParams: SP
                     .filter((c) => c.tipo === tipo)
                     .map((c) => (
                       <tr key={c.id} style={c.ativo ? undefined : { opacity: 0.5 }}>
-                        <td>{c.nome}</td>
+                        <td>
+                          <form action={acaoRenomearCategoria} className="acoes" style={{ flexWrap: "nowrap" }}>
+                            <input type="hidden" name="id" value={c.id} />
+                            <input name="nome" defaultValue={c.nome} required maxLength={60} aria-label={`Nome da categoria ${c.nome}`} style={{ minWidth: 0, flex: 1 }} />
+                            <button type="submit">Renomear</button>
+                          </form>
+                        </td>
                         <td className="num">
                           <form action={acaoAlternarCategoria}>
                             <input type="hidden" name="id" value={c.id} />
