@@ -1,0 +1,18 @@
+# /etc/caddy/Caddyfile
+# Caddy na frente do Nextcloud (snap) e do sistema de contas.
+# O Caddy obtém e renova sozinho os certificados HTTPS dos dois domínios.
+
+cloud.olimpogym.com.br {
+	# Nextcloud snap, movido para a porta 81 e sem HTTPS próprio
+	reverse_proxy 127.0.0.1:81
+	header Strict-Transport-Security "max-age=15552000; includeSubDomains"
+	redir /.well-known/carddav /remote.php/dav 301
+	redir /.well-known/caldav /remote.php/dav 301
+}
+
+contas.olimpogym.com.br {
+	reverse_proxy 127.0.0.1:3000
+	request_body {
+		max_size 12MB
+	}
+}
