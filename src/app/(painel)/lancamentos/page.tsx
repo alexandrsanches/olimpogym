@@ -165,7 +165,7 @@ export default async function Lancamentos({ searchParams }: { searchParams: SP }
                       <div className="small muted">
                         {l.parcela ? `recorrente · ${l.parcela}ª ` : ""}
                         {l.comprovante_arquivo ? "📎 comprovante " : ""}
-                        {l.origem.startsWith("importacao") ? "importado" : ""}
+                        {l.origem === "octagym" ? "Octagym" : ""}
                       </div>
                     </td>
                     <td className="small">{l.categoria_nome ?? "—"}</td>

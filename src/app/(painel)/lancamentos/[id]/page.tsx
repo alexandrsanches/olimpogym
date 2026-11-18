@@ -36,8 +36,14 @@ export default async function Detalhe({ params, searchParams }: { params: Promis
           <div className="muted">
             {despesa ? "Despesa" : "Receita"} · {l.unidade_nome} · {formatBRL(l.valor_centavos)} · vence {formatData(l.vencimento)}
             {l.parcela ? ` · recorrente (${l.parcela}ª parcela)` : ""}
-            {l.origem.startsWith("importacao") ? " · importado" : ""}
+            {l.origem === "octagym" ? " · Octagym" : ""}
           </div>
+          {l.origem === "octagym" && (
+            <div className="msg ok small" style={{ marginTop: 8, marginBottom: 0 }}>
+              Sincronizado do Octagym: valor, datas, status e cliente são atualizados automaticamente e alterações feitas aqui nesses campos serão
+              substituídas. Categoria, observação e comprovante são mantidos.
+            </div>
+          )}
         </div>
       </div>
 

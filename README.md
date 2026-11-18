@@ -120,6 +120,23 @@ ou copie-as para o Nextcloud.
 
 Para restaurar: pare o sistema (`docker compose stop`), copie o backup escolhido para `data/fluxo.db` e suba de novo.
 
+## Integração com o Octagym (contas a receber)
+
+O sistema busca as **contas a receber** do Octagym a cada X minutos pelo conector MCP
+(`https://app.octagym.ai/api/mcp/v1`, ferramentas `list_stores` e `list_financial_titles`) e as
+grava como receitas da unidade correspondente. Contas a pagar do Octagym não são importadas.
+
+1. No Octagym: **Configurações → Desenvolvedor → Nova Chave**, marque só **Financeiro → Leitura**
+   (`finance:read`). O conector MCP é do plano Enterprise.
+2. No servidor, acrescente ao `.env`: `OCTAGYM_API_KEY=og_live_...` e rode
+   `docker compose up -d --force-recreate`.
+3. No sistema: **Administração → Integração Octagym → Testar conexão**, ligue cada filial a uma
+   unidade, escolha a categoria, marque "Sincronizar automaticamente" e salve.
+
+Regras: valor, datas, status e cliente seguem o Octagym; categoria, observação e comprovante
+definidos no sistema são mantidos; título cancelado no Octagym é removido. A tela mostra o histórico
+das execuções e um diagnóstico com um exemplo do formato recebido (dados pessoais ocultos).
+
 ## Desenvolvimento
 
 ```bash

@@ -107,6 +107,30 @@ const MIGRACOES: string[] = [
   -- o primeiro administrador já existente passa a entrar também como "admin"
   UPDATE usuarios SET usuario = 'admin' WHERE id = (SELECT MIN(id) FROM usuarios WHERE papel = 'admin');
   `,
+  // 3: sincronização das contas a receber do Octagym
+  `
+  -- unidades (filiais) do Octagym e a unidade do sistema ligada a cada uma
+  CREATE TABLE octagym_lojas (
+    store_id TEXT PRIMARY KEY,
+    nome TEXT NOT NULL,
+    unidade_id INTEGER REFERENCES unidades(id) ON DELETE SET NULL,
+    atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE octagym_execucoes (
+    id INTEGER PRIMARY KEY,
+    gatilho TEXT NOT NULL,
+    inicio TEXT NOT NULL DEFAULT (datetime('now')),
+    fim TEXT,
+    ok INTEGER,
+    mensagem TEXT,
+    lidos INTEGER NOT NULL DEFAULT 0,
+    criados INTEGER NOT NULL DEFAULT 0,
+    atualizados INTEGER NOT NULL DEFAULT 0,
+    removidos INTEGER NOT NULL DEFAULT 0,
+    ignorados INTEGER NOT NULL DEFAULT 0
+  );
+  `,
 ];
 
 export function migrar(db: Database.Database): void {

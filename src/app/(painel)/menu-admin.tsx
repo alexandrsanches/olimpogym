@@ -33,6 +33,7 @@ export function MenuAdmin() {
       <div className="menu-itens">
         <Link href="/configuracoes">Configurações</Link>
         <Link href="/usuarios">Usuários</Link>
+        <Link href="/octagym">Integração Octagym</Link>
       </div>
     </details>
   );

@@ -24,6 +24,8 @@ import {
 import { apagarComprovantes, destinoSeguro, lerLancamento, lerPagamento, num, nums, salvarComprovante, txt, voltar } from "@/lib/form";
 import { parseValor } from "@/lib/money";
 import { atualizarUsuario, criarUsuario, redefinirSenha, trocarPropriaSenha } from "@/lib/usuarios";
+import { rodar as rodarOctagym } from "@/lib/octagym/servico";
+import { ligarLoja, lerConfig as lerConfigOctagym, salvarConfig as salvarConfigOctagym } from "@/lib/octagym/sincronizacao";
 
 // ---------- sessão ----------
 
@@ -239,4 +241,40 @@ export async function acaoTrocarSenha(fd: FormData) {
   const erro = trocarPropriaSenha(getDb(), u.id, (fd.get("atual") as string) ?? "", nova, await tokenHashAtual());
   if (erro) voltar("/conta", "erro", erro);
   voltar("/conta", "ok", "Senha alterada. Outras sessões foram encerradas.");
+}
+
+// ---------- Octagym (admin) ----------
+
+export async function acaoSalvarOctagym(fd: FormData) {
+  await exigirAdmin();
+  const db = getDb();
+  const atual = lerConfigOctagym(db);
+  salvarConfigOctagym(db, {
+    ativo: txt(fd, "ativo") === "1",
+    intervaloMin: num(fd, "intervalo") ?? atual.intervaloMin,
+    diasPassados: num(fd, "dias_passados") ?? atual.diasPassados,
+    diasFuturos: num(fd, "dias_futuros") ?? atual.diasFuturos,
+    categoriaPadraoId: num(fd, "categoria_id"),
+    unidadePadraoId: num(fd, "unidade_padrao"),
+  });
+  for (const [k, v] of fd.entries()) {
+    if (!k.startsWith("loja:") || typeof v !== "string") continue;
+    ligarLoja(db, k.slice(5), Number(v) || null);
+  }
+  revalidatePath("/octagym");
+  voltar("/octagym", "ok", "Configuração da integração salva.");
+}
+
+export async function acaoTestarOctagym() {
+  await exigirAdmin();
+  const r = await rodarOctagym("teste");
+  revalidatePath("/octagym");
+  voltar("/octagym", r.ok ? "ok" : "erro", r.mensagem);
+}
+
+export async function acaoSincronizarOctagym() {
+  await exigirAdmin();
+  const r = await rodarOctagym("manual");
+  revalidatePath("/", "layout");
+  voltar("/octagym", r.ok ? "ok" : "erro", r.mensagem);
 }
