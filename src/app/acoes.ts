@@ -1,6 +1,5 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { entrar, exigirAdmin, exigirContexto, exigirUsuario, loginBloqueado, sair, tokenHashAtual, type Contexto } from "@/lib/auth";
@@ -15,9 +14,7 @@ import {
   criarCategoria,
   criarLancamento,
   darBaixa,
-  desfazerLote,
   excluirLancamento,
-  importarReceitas,
   obterLancamento,
   reabrir,
   renomearCategoria,
@@ -26,7 +23,6 @@ import {
 } from "@/lib/lancamentos";
 import { apagarComprovantes, destinoSeguro, lerLancamento, lerPagamento, num, nums, salvarComprovante, txt, voltar } from "@/lib/form";
 import { parseValor } from "@/lib/money";
-import { interpretarRelatorio } from "@/lib/planilha";
 import { atualizarUsuario, criarUsuario, redefinirSenha, trocarPropriaSenha } from "@/lib/usuarios";
 
 // ---------- sessão ----------
@@ -143,37 +139,6 @@ export async function acaoExcluirLancamento(fd: FormData) {
   await apagarComprovantes(arquivos);
   revalidatePath("/", "layout");
   voltar(`/lancamentos?mes=${l.vencimento.slice(0, 7)}&tipo=${l.tipo}&unidade=${l.unidade_id}`, "ok", "Lançamento excluído.");
-}
-
-// ---------- importação ----------
-
-export async function acaoImportar(fd: FormData) {
-  const ctx = await exigirContexto("editor");
-  const unidadeId = num(fd, "unidade_id");
-  if (!unidadeId || !ctx.ids.includes(unidadeId)) voltar("/importar", "erro", "Escolha a unidade.");
-  const f = fd.get("arquivo");
-  if (!(f instanceof File) || f.size === 0) voltar("/importar", "erro", "Escolha um arquivo CSV.");
-  if (f.size > 5 * 1024 * 1024) voltar("/importar", "erro", "Arquivo maior que 5 MB.");
-  const buf = Buffer.from(await f.arrayBuffer());
-  // relatórios do Excel brasileiro às vezes vêm em Latin-1
-  let texto = buf.toString("utf8");
-  if (texto.includes("�")) texto = buf.toString("latin1");
-  const r = interpretarRelatorio(texto);
-  if (!r.linhas.length) voltar("/importar", "erro", r.erros.map((e) => `Linha ${e.linha}: ${e.motivo}`).slice(0, 5).join(" | ") || "Nenhuma linha válida.");
-  const lote = `${new Date().toISOString().slice(0, 16).replace("T", " ")} ${f.name.slice(0, 60)} ${randomUUID().slice(0, 6)}`;
-  const res = importarReceitas(getDb(), r.linhas, { unidadeId, lote, categoriaPadraoId: num(fd, "categoria_id"), usuarioId: ctx.usuario.id });
-  revalidatePath("/", "layout");
-  const partes = [`${res.inseridos} receitas importadas`];
-  if (res.duplicados) partes.push(`${res.duplicados} já existiam`);
-  if (r.erros.length) partes.push(`${r.erros.length} linhas com erro (${r.erros.slice(0, 3).map((e) => e.linha).join(", ")}${r.erros.length > 3 ? "…" : ""})`);
-  voltar("/importar", "ok", partes.join(", ") + ".");
-}
-
-export async function acaoDesfazerLote(fd: FormData) {
-  const ctx = await exigirContexto("editor");
-  const n = desfazerLote(getDb(), txt(fd, "origem"), ctx.ids);
-  revalidatePath("/", "layout");
-  voltar("/importar", "ok", `${n} lançamentos removidos.`);
 }
 
 // ---------- configurações (admin) ----------

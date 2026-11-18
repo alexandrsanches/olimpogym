@@ -16,15 +16,13 @@ Roda no próprio servidor (VPS da Hostinger), em `dashboard.olimpogym.com.br`.
 - **Fluxo diário**: dia a dia, com saldo realizado até hoje e projetado depois de hoje.
 - **Unidades**: cada unidade tem sua própria conta (saldo inicial) e seus lançamentos; o painel mostra uma unidade
   ou o consolidado.
-- **Importação do Octagym**: envie o relatório financeiro exportado em CSV; cada linha vira uma receita.
-  Linhas repetidas são ignoradas e cada importação pode ser desfeita.
 - **Exportar planilha** (CSV para Excel / Nextcloud) de qualquer lista filtrada.
 - **Login com permissões**:
 
   | Permissão | Pode |
   |---|---|
   | Administrador | tudo, inclusive usuários, unidades, categorias e saldo inicial; vê todas as unidades |
-  | Editor | lançar, editar, dar baixa, excluir, anexar comprovante, importar e exportar, nas unidades liberadas |
+  | Editor | lançar, editar, dar baixa, excluir, anexar comprovante e exportar, nas unidades liberadas |
   | Somente leitura | consultar painel, listas e exportar, nas unidades liberadas |
 
 Os dados ficam em um único arquivo SQLite (`data/fluxo.db`) e os comprovantes em `data/comprovantes/`.
@@ -122,30 +120,19 @@ ou copie-as para o Nextcloud.
 
 Para restaurar: pare o sistema (`docker compose stop`), copie o backup escolhido para `data/fluxo.db` e suba de novo.
 
-## Importar do Octagym
-
-O Octagym não tem API pública. Por isso, a importação usa o relatório exportado:
-
-1. No Octagym, abra o relatório financeiro / de recebimentos do período e exporte em CSV (ou salve a planilha como CSV).
-2. No sistema, **Importar Octagym** → escolha a unidade e a categoria padrão → envie o arquivo.
-
-As colunas são reconhecidas pelo nome do cabeçalho: valor, vencimento/data, data de pagamento, aluno/cliente,
-plano/descrição, status/situação e forma de pagamento. Se o seu relatório usar nomes diferentes e a importação
-reclamar, ajuste `SINONIMOS` em `src/lib/planilha.ts`.
-
 ## Desenvolvimento
 
 ```bash
 npm ci
 cp .env.example .env    # use COOKIE_SECURE=false localmente
 npm run dev             # http://localhost:3000
-npm test                # testes da lógica (valores, recorrência, previsto x realizado, importação, permissões)
+npm test                # testes da lógica (valores, recorrência, previsto x realizado, permissões)
 npm run lint            # checagem de tipos
 ```
 
 Estrutura principal:
 
 - `src/lib/` — regras de negócio: banco e migrações (`db.ts`), lançamentos, cálculos do fluxo (`fluxo.ts`),
-  importação/exportação (`planilha.ts`), usuários e login.
+  exportação de planilha (`planilha.ts`), usuários e login.
 - `src/app/` — telas (Next.js) e ações dos formulários (`acoes.ts`).
 - `tests/` — testes automatizados.

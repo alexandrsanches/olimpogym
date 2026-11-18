@@ -6,16 +6,14 @@ import {
   atualizarLancamento,
   criarLancamento,
   darBaixa,
-  desfazerLote,
   excluirLancamento,
-  importarReceitas,
   listarCategorias,
   listarLancamentos,
   reabrir,
   renomearCategoria,
 } from "@/lib/lancamentos";
 import { definirSaldoInicial, fluxoDiario, pendencias, porCategoria, projecoes, resumoPeriodo, saldoRealizadoAte } from "@/lib/fluxo";
-import { gerarCSV, interpretarRelatorio, lerCSV } from "@/lib/planilha";
+import { gerarCSV, lerCSV } from "@/lib/planilha";
 import { atualizarUsuario, buscarParaLogin, criarUsuario, redefinirSenha, trocarPropriaSenha, unidadesDoUsuario } from "@/lib/usuarios";
 import { conferirSenha } from "@/lib/senhas";
 
@@ -155,34 +153,7 @@ describe("previsto x realizado", () => {
   });
 });
 
-describe("importação de relatório (Octagym) e exportação", () => {
-  const csv = [
-    "Aluno;Plano;Vencimento;Data de pagamento;Valor;Situação;Forma de pagamento",
-    'Maria Silva;Mensal;05/03/2026;05/03/2026;"129,90";Pago;Pix',
-    "João;Trimestral;10/03/2026;;349,00;Pendente;Boleto",
-    "Ana;Mensal;xx;;129,90;Pago;Pix",
-    "Ana;Mensal;12/03/2026;12/03/2026;0,00;Cortesia;",
-  ].join("\n");
-
-  it("detecta colunas, status e erros", () => {
-    const r = interpretarRelatorio(csv);
-    expect(r.linhas).toHaveLength(2);
-    expect(r.erros).toEqual([{ linha: 4, motivo: "Data inválida ou vazia." }]);
-    expect(r.linhas[0]).toMatchObject({ fornecedor: "Maria Silva", descricao: "Mensal", valor_centavos: 12990, pago: true, data_pagamento: "2026-03-05", forma_pagamento: "Pix" });
-    expect(r.linhas[1]).toMatchObject({ pago: false, data_pagamento: null, vencimento: "2026-03-10" });
-  });
-
-  it("não importa a mesma linha duas vezes e permite desfazer o lote", () => {
-    const db = novoBanco();
-    const { linhas } = interpretarRelatorio(csv);
-    expect(importarReceitas(db, linhas, { unidadeId: 1, lote: "a", categoriaPadraoId: null })).toEqual({ inseridos: 2, duplicados: 0 });
-    expect(importarReceitas(db, linhas, { unidadeId: 1, lote: "b", categoriaPadraoId: null })).toEqual({ inseridos: 0, duplicados: 2 });
-    // a mesma planilha importada na outra unidade não é duplicata
-    expect(importarReceitas(db, linhas, { unidadeId: 2, lote: "c", categoriaPadraoId: null }).inseridos).toBe(2);
-    expect(desfazerLote(db, "importacao:a", [2])).toBe(0); // sem acesso à unidade 1
-    expect(desfazerLote(db, "importacao:a", [1])).toBe(2);
-  });
-
+describe("exportação", () => {
   it("gera CSV que volta a ser lido", () => {
     const db = novoBanco();
     criarLancamento(db, { unidade_id: 1, tipo: "despesa", descricao: 'Conserto "esteira"; urgente', valor_centavos: 123456, vencimento: "2026-03-05" });

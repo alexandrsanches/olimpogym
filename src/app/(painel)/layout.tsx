@@ -22,7 +22,6 @@ export default async function PainelLayout({ children }: { children: React.React
             <Link href="/lancamentos?tipo=despesa">Contas a pagar</Link>
             <Link href="/lancamentos?tipo=receita">Recebimentos</Link>
             {ctx.podeEditar && <Link href="/lancamentos/novo">+ Lançar</Link>}
-            {ctx.podeEditar && <Link href="/importar">Importar Octagym</Link>}
             {usuario.papel === "admin" && <MenuAdmin />}
           </nav>
           <div className="usuario">

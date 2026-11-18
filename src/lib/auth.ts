@@ -113,7 +113,7 @@ export const NOMES_PAPEL: Record<Papel, string> = {
 
 export const DESCRICAO_PAPEL: Record<Papel, string> = {
   admin: "Tudo, inclusive usuários, categorias e saldo inicial.",
-  editor: "Lança, edita, dá baixa, exclui e importa.",
+  editor: "Lança, edita, dá baixa e exclui.",
   leitura: "Só consulta o painel e exporta planilhas.",
 };
 
