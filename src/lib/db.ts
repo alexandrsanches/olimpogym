@@ -131,6 +131,17 @@ const MIGRACOES: string[] = [
     ignorados INTEGER NOT NULL DEFAULT 0
   );
   `,
+  // 4: no Octagym cada unidade é uma empresa com a sua própria chave de API
+  `
+  DROP TABLE octagym_lojas;
+  CREATE TABLE octagym_chaves (
+    unidade_id INTEGER PRIMARY KEY REFERENCES unidades(id) ON DELETE CASCADE,
+    chave TEXT NOT NULL,
+    empresa TEXT,
+    atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  DELETE FROM configuracoes WHERE chave IN ('octagym_unidade_padrao', 'octagym_diagnostico');
+  `,
 ];
 
 export function migrar(db: Database.Database): void {

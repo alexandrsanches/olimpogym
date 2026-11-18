@@ -123,19 +123,20 @@ Para restaurar: pare o sistema (`docker compose stop`), copie o backup escolhido
 ## Integração com o Octagym (contas a receber)
 
 O sistema busca as **contas a receber** do Octagym a cada X minutos pelo conector MCP
-(`https://app.octagym.ai/api/mcp/v1`, ferramentas `list_stores` e `list_financial_titles`) e as
-grava como receitas da unidade correspondente. Contas a pagar do Octagym não são importadas.
+(`https://app.octagym.ai/api/mcp/v1`, ferramenta `list_financial_titles`) e as grava como receitas.
+No Octagym cada unidade é uma conta separada, então **cada unidade tem a sua chave**, e tudo o que
+vem por ela entra naquela unidade. Contas a pagar do Octagym não são importadas.
 
-1. No Octagym: **Configurações → Desenvolvedor → Nova Chave**, marque só **Financeiro → Leitura**
-   (`finance:read`). O conector MCP é do plano Enterprise.
-2. No servidor, acrescente ao `.env`: `OCTAGYM_API_KEY=og_live_...` e rode
-   `docker compose up -d --force-recreate`.
-3. No sistema: **Administração → Integração Octagym → Testar conexão**, ligue cada filial a uma
-   unidade, escolha a categoria, marque "Sincronizar automaticamente" e salve.
+1. No Octagym de cada unidade: **Configurações → Desenvolvedor → Nova Chave**, marque só
+   **Financeiro → Leitura** (`finance:read`). O conector MCP é do plano Enterprise.
+2. No sistema: **Administração → Integração Octagym**, cole a chave na linha da unidade e clique em
+   **Salvar** e depois em **Testar**. A chave salva não é exibida de novo (só os 4 últimos caracteres).
+3. Escolha a categoria, marque "Sincronizar automaticamente" e salve.
 
 Regras: valor, datas, status e cliente seguem o Octagym; categoria, observação e comprovante
 definidos no sistema são mantidos; título cancelado no Octagym é removido. A tela mostra o histórico
-das execuções e um diagnóstico com um exemplo do formato recebido (dados pessoais ocultos).
+das execuções e um diagnóstico por unidade com um exemplo do formato recebido (dados pessoais ocultos).
+As chaves ficam no banco (`data/fluxo.db`); proteja os backups desse arquivo.
 
 ## Desenvolvimento
 

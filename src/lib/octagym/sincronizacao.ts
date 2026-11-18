@@ -3,10 +3,13 @@ import { hoje as hojeSP, somarDias } from "../datas";
 import type { ConexaoOctagym, FerramentaInfo } from "./cliente";
 import { extrairCursor, extrairLista, mapearLoja, mapearTitulo, mascarar, planejarArgumentos, type TituloReceber } from "./mapeamento";
 
+// No Octagym cada unidade da academia é uma empresa com a sua própria chave de API.
+// Tudo o que vem pela chave de uma unidade é gravado nessa unidade.
+
 export const FERRAMENTA_TITULOS = "list_financial_titles";
 export const FERRAMENTA_LOJAS = "list_stores";
 
-// ---------- configurações (tabela configuracoes) ----------
+// ---------- configurações gerais (tabela configuracoes) ----------
 
 export interface ConfigOctagym {
   ativo: boolean;
@@ -14,11 +17,9 @@ export interface ConfigOctagym {
   diasPassados: number;
   diasFuturos: number;
   categoriaPadraoId: number | null;
-  /** unidade usada para títulos sem filial ou de filial não ligada (null = ignorar esses títulos) */
-  unidadePadraoId: number | null;
 }
 
-const PADRAO: ConfigOctagym = { ativo: false, intervaloMin: 15, diasPassados: 90, diasFuturos: 120, categoriaPadraoId: null, unidadePadraoId: null };
+const PADRAO: ConfigOctagym = { ativo: false, intervaloMin: 15, diasPassados: 90, diasFuturos: 120, categoriaPadraoId: null };
 
 export function lerConfig(db: Database.Database): ConfigOctagym {
   const linhas = db.prepare("SELECT chave, valor FROM configuracoes WHERE chave LIKE 'octagym_%'").all() as { chave: string; valor: string }[];
@@ -30,7 +31,6 @@ export function lerConfig(db: Database.Database): ConfigOctagym {
     diasPassados: n("octagym_dias_passados", PADRAO.diasPassados)!,
     diasFuturos: n("octagym_dias_futuros", PADRAO.diasFuturos)!,
     categoriaPadraoId: n("octagym_categoria_padrao", null),
-    unidadePadraoId: n("octagym_unidade_padrao", null),
   };
 }
 
@@ -42,38 +42,63 @@ export function salvarConfig(db: Database.Database, c: ConfigOctagym): void {
     up.run("octagym_dias_passados", String(Math.max(1, Math.min(c.diasPassados, 365))));
     up.run("octagym_dias_futuros", String(Math.max(0, Math.min(c.diasFuturos, 365))));
     up.run("octagym_categoria_padrao", c.categoriaPadraoId == null ? "" : String(c.categoriaPadraoId));
-    up.run("octagym_unidade_padrao", c.unidadePadraoId == null ? "" : String(c.unidadePadraoId));
   })();
 }
 
-// ---------- lojas (filiais) ----------
+// ---------- chaves por unidade ----------
 
-export interface Loja {
-  store_id: string;
-  nome: string;
-  unidade_id: number | null;
+export interface ChaveUnidade {
+  unidade_id: number;
+  unidade_nome: string;
+  /** só os últimos caracteres, para identificar a chave sem mostrá-la */
+  final: string | null;
+  empresa: string | null;
+  atualizado_em: string | null;
 }
 
-export function listarLojas(db: Database.Database): Loja[] {
-  return db.prepare("SELECT store_id, nome, unidade_id FROM octagym_lojas ORDER BY nome").all() as Loja[];
+/** Todas as unidades ativas, com a situação da chave de cada uma. Nunca devolve a chave inteira. */
+export function listarChaves(db: Database.Database): ChaveUnidade[] {
+  return (
+    db
+      .prepare(`SELECT u.id AS unidade_id, u.nome AS unidade_nome, k.chave, k.empresa, k.atualizado_em
+        FROM unidades u LEFT JOIN octagym_chaves k ON k.unidade_id = u.id WHERE u.ativo = 1 ORDER BY u.nome`)
+      .all() as (Omit<ChaveUnidade, "final"> & { chave: string | null })[]
+  ).map(({ chave, ...r }) => ({ ...r, final: chave ? chave.slice(-4) : null }));
 }
 
-export function ligarLoja(db: Database.Database, storeId: string, unidadeId: number | null): void {
-  db.prepare("UPDATE octagym_lojas SET unidade_id = ?, atualizado_em = datetime('now') WHERE store_id = ?").run(unidadeId, storeId);
+/** Chaves para uso interno da sincronização. */
+export function chavesParaSincronizar(db: Database.Database): { unidade_id: number; unidade_nome: string; chave: string }[] {
+  return db
+    .prepare(`SELECT k.unidade_id, u.nome AS unidade_nome, k.chave FROM octagym_chaves k JOIN unidades u ON u.id = k.unidade_id
+      WHERE u.ativo = 1 ORDER BY u.nome`)
+    .all() as { unidade_id: number; unidade_nome: string; chave: string }[];
 }
 
-function registrarLojas(db: Database.Database, lojas: { id: string; nome: string }[]): void {
-  const up = db.prepare(`INSERT INTO octagym_lojas (store_id, nome) VALUES (?, ?)
-    ON CONFLICT(store_id) DO UPDATE SET nome = excluded.nome, atualizado_em = datetime('now')`);
-  db.transaction(() => lojas.forEach((l) => up.run(l.id, l.nome)))();
+export function validarChave(chave: string): string | null {
+  const c = chave.trim();
+  if (!/^(og|ea)_[A-Za-z0-9_-]{8,}$/.test(c)) return "Chave inválida: ela começa com og_live_ (ou ea_live_) e não tem espaços.";
+  return null;
 }
 
-/** Se houver tantas lojas quanto unidades e nenhuma ligação ainda, liga pela ordem do nome. Só sugere; o admin pode mudar. */
-function sugerirLigacoes(db: Database.Database): void {
-  const lojas = listarLojas(db);
-  if (!lojas.length || lojas.some((l) => l.unidade_id != null)) return;
-  const unidades = db.prepare("SELECT id FROM unidades WHERE ativo = 1 ORDER BY id").all() as { id: number }[];
-  if (lojas.length === 1 && unidades.length >= 1) ligarLoja(db, lojas[0].store_id, unidades[0].id);
+export function salvarChave(db: Database.Database, unidadeId: number, chave: string): string | null {
+  const erro = validarChave(chave);
+  if (erro) return erro;
+  const existe = db.prepare("SELECT 1 FROM unidades WHERE id = ?").get(unidadeId);
+  if (!existe) return "Unidade não encontrada.";
+  const repetida = db.prepare("SELECT 1 FROM octagym_chaves WHERE chave = ? AND unidade_id <> ?").get(chave.trim(), unidadeId);
+  if (repetida) return "Essa chave já está cadastrada em outra unidade.";
+  db.prepare(`INSERT INTO octagym_chaves (unidade_id, chave) VALUES (?, ?)
+    ON CONFLICT(unidade_id) DO UPDATE SET chave = excluded.chave, empresa = NULL, atualizado_em = datetime('now')`).run(unidadeId, chave.trim());
+  return null;
+}
+
+export function removerChave(db: Database.Database, unidadeId: number): void {
+  db.prepare("DELETE FROM octagym_chaves WHERE unidade_id = ?").run(unidadeId);
+  db.prepare("DELETE FROM configuracoes WHERE chave = ?").run(`octagym_diagnostico_${unidadeId}`);
+}
+
+function registrarEmpresa(db: Database.Database, unidadeId: number, nome: string | null): void {
+  if (nome) db.prepare("UPDATE octagym_chaves SET empresa = ? WHERE unidade_id = ?").run(nome.slice(0, 120), unidadeId);
 }
 
 // ---------- gravação dos títulos ----------
@@ -87,7 +112,7 @@ export interface Contagem {
   motivosIgnorados: Record<string, number>;
 }
 
-function novaContagem(): Contagem {
+export function novaContagem(): Contagem {
   return { lidos: 0, criados: 0, atualizados: 0, removidos: 0, ignorados: 0, motivosIgnorados: {} };
 }
 
@@ -96,14 +121,17 @@ function ignorar(c: Contagem, motivo: string) {
   c.motivosIgnorados[motivo] = (c.motivosIgnorados[motivo] ?? 0) + 1;
 }
 
+/** Chave estável do lançamento: a unidade entra porque cada unidade é uma empresa (ids podem se repetir). */
+export function chaveImportacao(unidadeId: number, tituloId: string): string {
+  return `octagym:${unidadeId}:${tituloId}`;
+}
+
 /**
- * Cria ou atualiza as receitas a partir dos títulos do Octagym.
+ * Cria ou atualiza as receitas da unidade a partir dos títulos do Octagym.
  * O Octagym é a fonte de verdade para valor, datas, status, descrição e cliente; categoria,
  * observação e comprovante definidos no sistema são preservados. Título cancelado no Octagym é removido.
  */
-export function gravarTitulos(db: Database.Database, titulos: TituloReceber[], cfg: ConfigOctagym, c: Contagem = novaContagem()): Contagem {
-  const lojas = new Map(listarLojas(db).map((l) => [l.store_id, l.unidade_id]));
-  const unidadesAtivas = new Set((db.prepare("SELECT id FROM unidades").all() as { id: number }[]).map((u) => u.id));
+export function gravarTitulos(db: Database.Database, unidadeId: number, titulos: TituloReceber[], cfg: ConfigOctagym, c: Contagem = novaContagem()): Contagem {
   const categorias = new Map(
     (db.prepare("SELECT id, nome FROM categorias WHERE tipo = 'receita'").all() as { id: number; nome: string }[]).map((x) => [x.nome.toLowerCase(), x.id]),
   );
@@ -114,7 +142,7 @@ export function gravarTitulos(db: Database.Database, titulos: TituloReceber[], c
     VALUES (@unidade_id, 'receita', @descricao, @fornecedor, @categoria_id, @valor, @vencimento, @status,
       @data_pagamento, @valor_pago, @forma, 'octagym', @chave)`);
   const atualizar = db.prepare(`
-    UPDATE lancamentos SET unidade_id=@unidade_id, descricao=@descricao, fornecedor=@fornecedor, valor_centavos=@valor,
+    UPDATE lancamentos SET descricao=@descricao, fornecedor=@fornecedor, valor_centavos=@valor,
       vencimento=@vencimento, status=@status, data_pagamento=@data_pagamento, valor_pago_centavos=@valor_pago,
       forma_pagamento=COALESCE(@forma, forma_pagamento), atualizado_em=datetime('now')
     WHERE id=@id`);
@@ -122,7 +150,7 @@ export function gravarTitulos(db: Database.Database, titulos: TituloReceber[], c
 
   db.transaction(() => {
     for (const t of titulos) {
-      const chave = `octagym:${t.id}`;
+      const chave = chaveImportacao(unidadeId, t.id);
       const existente = buscar.get(chave) as Record<string, unknown> | undefined;
       if (t.situacao === "cancelado") {
         if (existente) {
@@ -131,14 +159,8 @@ export function gravarTitulos(db: Database.Database, titulos: TituloReceber[], c
         } else ignorar(c, "cancelado no Octagym");
         continue;
       }
-      let unidade = t.store_id ? lojas.get(t.store_id) ?? null : null;
-      if (unidade == null) unidade = cfg.unidadePadraoId;
-      if (unidade == null || !unidadesAtivas.has(unidade)) {
-        ignorar(c, t.store_id ? "filial do Octagym sem unidade ligada" : "título sem filial e sem unidade padrão");
-        continue;
-      }
       const dados = {
-        unidade_id: unidade,
+        unidade_id: unidadeId,
         descricao: t.descricao,
         fornecedor: t.cliente,
         valor: t.valor_centavos,
@@ -153,7 +175,6 @@ export function gravarTitulos(db: Database.Database, titulos: TituloReceber[], c
         c.criados++;
       } else {
         const mudou =
-          existente.unidade_id !== dados.unidade_id ||
           existente.descricao !== dados.descricao ||
           existente.fornecedor !== dados.fornecedor ||
           existente.valor_centavos !== dados.valor ||
@@ -176,24 +197,17 @@ export function gravarTitulos(db: Database.Database, titulos: TituloReceber[], c
 
 export interface Diagnostico {
   quando: string;
+  unidade_id: number;
   ok: boolean;
   mensagem: string;
+  empresa: string | null;
   ferramentasFinanceiras: string[];
   temTitulos: boolean;
-  temLojas: boolean;
   parametrosTitulos: string[];
   argumentosUsados: string[];
-  lojas: { id: string; nome: string }[];
   exemploBruto: unknown;
   exemploInterpretado: unknown;
-  contagem?: Omit<Contagem, "motivosIgnorados"> & { motivosIgnorados: Record<string, number> };
-}
-
-async function buscarLojas(con: ConexaoOctagym): Promise<{ id: string; nome: string }[]> {
-  const dados = await con.chamar(FERRAMENTA_LOJAS, {});
-  return extrairLista(dados)
-    .map(mapearLoja)
-    .filter((l): l is { id: string; nome: string } => !!l);
+  contagem?: Contagem;
 }
 
 /** Busca todos os títulos a receber do intervalo, seguindo a paginação (com limite de segurança). */
@@ -234,26 +248,27 @@ async function buscarTitulos(con: ConexaoOctagym, ferramenta: FerramentaInfo, in
 }
 
 /**
- * Uma rodada completa: lojas + títulos a receber do intervalo configurado.
- * Com `apenasTestar`, não grava lançamentos (só lojas e diagnóstico).
+ * Uma rodada para uma unidade: títulos a receber do intervalo configurado, pela chave dessa unidade.
+ * Com `apenasTestar`, lê só a primeira página e não grava lançamentos.
  */
 export async function executar(
   db: Database.Database,
   con: ConexaoOctagym,
+  unidadeId: number,
   opcoes: { apenasTestar?: boolean; hoje?: string } = {},
 ): Promise<Diagnostico> {
   const cfg = lerConfig(db);
   const hoje = opcoes.hoje ?? hojeSP();
   const diag: Diagnostico = {
     quando: new Date().toISOString(),
+    unidade_id: unidadeId,
     ok: false,
     mensagem: "",
+    empresa: null,
     ferramentasFinanceiras: [],
     temTitulos: false,
-    temLojas: false,
     parametrosTitulos: [],
     argumentosUsados: [],
-    lojas: [],
     exemploBruto: null,
     exemploInterpretado: null,
   };
@@ -262,17 +277,23 @@ export async function executar(
   diag.ferramentasFinanceiras = ferramentas.map((f) => f.name).filter((n) => /financ|title|store|cash|receiv/i.test(n));
   const ftitulos = porNome.get(FERRAMENTA_TITULOS);
   diag.temTitulos = !!ftitulos;
-  diag.temLojas = porNome.has(FERRAMENTA_LOJAS);
   diag.parametrosTitulos = Object.keys(ftitulos?.inputSchema?.properties ?? {});
   if (!ftitulos) {
     diag.mensagem = `A chave não dá acesso à ferramenta ${FERRAMENTA_TITULOS}. Confira se ela tem o escopo Financeiro — leitura (finance:read) e se o plano inclui o conector MCP.`;
     return diag;
   }
 
-  if (diag.temLojas) {
-    diag.lojas = await buscarLojas(con);
-    registrarLojas(db, diag.lojas);
-    sugerirLigacoes(db);
+  // nome da filial no Octagym, só para conferência na tela
+  if (porNome.has(FERRAMENTA_LOJAS)) {
+    try {
+      const lojas = extrairLista(await con.chamar(FERRAMENTA_LOJAS, {}))
+        .map(mapearLoja)
+        .filter((l): l is { id: string; nome: string } => !!l);
+      diag.empresa = lojas.map((l) => l.nome).join(", ") || null;
+      registrarEmpresa(db, unidadeId, diag.empresa);
+    } catch {
+      /* opcional: a falha aqui não impede a sincronização */
+    }
   }
 
   const intervalo = { inicio: somarDias(hoje, -cfg.diasPassados), fim: somarDias(hoje, cfg.diasFuturos) };
@@ -294,7 +315,7 @@ export async function executar(
     const m = mapearTitulo(brutos[0]);
     diag.exemploInterpretado = m.ok ? { ...m.titulo, cliente: m.titulo.cliente ? "•••" : null } : m;
   }
-  if (!opcoes.apenasTestar) gravarTitulos(db, titulos, cfg, c);
+  if (!opcoes.apenasTestar) gravarTitulos(db, unidadeId, titulos, cfg, c);
   diag.contagem = c;
   diag.ok = true;
   diag.mensagem = opcoes.apenasTestar
@@ -347,14 +368,22 @@ export function ultimaExecucaoAutomatica(db: Database.Database): Execucao | unde
 }
 
 export function salvarDiagnostico(db: Database.Database, d: Diagnostico): void {
-  db.prepare("INSERT INTO configuracoes (chave, valor) VALUES ('octagym_diagnostico', ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor").run(JSON.stringify(d));
+  db.prepare("INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor").run(
+    `octagym_diagnostico_${d.unidade_id}`,
+    JSON.stringify(d),
+  );
 }
 
-export function lerDiagnostico(db: Database.Database): Diagnostico | null {
-  const r = db.prepare("SELECT valor FROM configuracoes WHERE chave = 'octagym_diagnostico'").get() as { valor: string } | undefined;
-  try {
-    return r ? (JSON.parse(r.valor) as Diagnostico) : null;
-  } catch {
-    return null;
+export function lerDiagnosticos(db: Database.Database): Map<number, Diagnostico> {
+  const linhas = db.prepare("SELECT valor FROM configuracoes WHERE chave LIKE 'octagym_diagnostico_%'").all() as { valor: string }[];
+  const m = new Map<number, Diagnostico>();
+  for (const l of linhas) {
+    try {
+      const d = JSON.parse(l.valor) as Diagnostico;
+      m.set(d.unidade_id, d);
+    } catch {
+      /* ignora registro corrompido */
+    }
   }
+  return m;
 }

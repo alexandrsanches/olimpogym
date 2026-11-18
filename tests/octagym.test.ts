@@ -8,7 +8,7 @@ import { abrirBanco } from "@/lib/db";
 import { listarLancamentos } from "@/lib/lancamentos";
 import { conectar } from "@/lib/octagym/cliente";
 import { extrairLista, lerResultado, mapearTitulo, mascarar, planejarArgumentos } from "@/lib/octagym/mapeamento";
-import { executar, gravarTitulos, lerConfig, ligarLoja, listarLojas, salvarConfig } from "@/lib/octagym/sincronizacao";
+import { executar, gravarTitulos, lerConfig, listarChaves, removerChave, salvarChave, salvarConfig, chavesParaSincronizar } from "@/lib/octagym/sincronizacao";
 
 describe("interpretação dos títulos", () => {
   it("monta os argumentos a partir do schema da ferramenta", () => {
@@ -67,40 +67,60 @@ describe("interpretação dos títulos", () => {
   });
 });
 
+describe("chaves por unidade", () => {
+  it("valida, guarda uma chave por unidade e nunca devolve a chave inteira", () => {
+    const db = abrirBanco(":memory:");
+    expect(salvarChave(db, 1, "abc")).toMatch(/inválida/);
+    expect(salvarChave(db, 1, "og_live_ chave com espaço")).toMatch(/inválida/);
+    expect(salvarChave(db, 1, "og_live_unidade1xyz9")).toBeNull();
+    expect(salvarChave(db, 2, "og_live_unidade1xyz9")).toMatch(/outra unidade/);
+    expect(salvarChave(db, 2, " ea_live_antiga2abcd ")).toBeNull();
+    expect(salvarChave(db, 99, "og_live_qualquer123")).toMatch(/não encontrada/);
+    const lista = listarChaves(db);
+    expect(lista.map((c) => [c.unidade_nome, c.final])).toEqual([["Unidade 1", "xyz9"], ["Unidade 2", "abcd"]]);
+    expect(JSON.stringify(lista)).not.toContain("og_live_unidade1");
+    expect(salvarChave(db, 1, "og_live_trocada0000")).toBeNull(); // trocar
+    expect(chavesParaSincronizar(db).find((k) => k.unidade_id === 1)?.chave).toBe("og_live_trocada0000");
+    removerChave(db, 2);
+    expect(chavesParaSincronizar(db)).toHaveLength(1);
+  });
+});
+
 describe("gravação das contas a receber", () => {
-  const base = { store_id: "s1", descricao: "Mensalidade", cliente: "Ana", categoria: null, valor_centavos: 10000, vencimento: "2026-03-10", data_pagamento: null, valor_pago_centavos: null, forma_pagamento: null } as const;
+  const base = { store_id: null, descricao: "Mensalidade", cliente: "Ana", categoria: null, valor_centavos: 10000, vencimento: "2026-03-10", data_pagamento: null, valor_pago_centavos: null, forma_pagamento: null } as const;
 
   it("cria, atualiza, preserva a categoria escolhida e remove cancelados", () => {
     const db = abrirBanco(":memory:");
-    db.prepare("INSERT INTO octagym_lojas (store_id, nome, unidade_id) VALUES ('s1', 'Centro', 2), ('s9', 'Sem ligação', NULL)").run();
     const cfg = { ...lerConfig(db), categoriaPadraoId: 11 };
-    let c = gravarTitulos(db, [{ ...base, id: "a", situacao: "aberto" }, { ...base, id: "b", store_id: "s9", situacao: "aberto" }, { ...base, id: "c", store_id: null, situacao: "aberto" }], cfg);
-    expect(c).toMatchObject({ criados: 1, ignorados: 2 });
+    let c = gravarTitulos(db, 2, [{ ...base, id: "a", situacao: "aberto" }], cfg);
+    expect(c).toMatchObject({ criados: 1, ignorados: 0 });
     let [l] = listarLancamentos(db, { unidades: [1, 2] });
-    expect(l).toMatchObject({ unidade_id: 2, tipo: "receita", origem: "octagym", status: "aberto", categoria_id: 11, valor_centavos: 10000 });
+    expect(l).toMatchObject({ unidade_id: 2, tipo: "receita", origem: "octagym", status: "aberto", categoria_id: 11, valor_centavos: 10000, import_chave: "octagym:2:a" });
+
+    // o mesmo id de título em outra unidade (outra empresa no Octagym) é outro lançamento
+    expect(gravarTitulos(db, 1, [{ ...base, id: "a", situacao: "aberto" }], cfg).criados).toBe(1);
 
     // usuário muda a categoria; Octagym marca como pago
     db.prepare("UPDATE lancamentos SET categoria_id = 12, observacao = 'ok' WHERE id = ?").run(l.id);
-    c = gravarTitulos(db, [{ ...base, id: "a", situacao: "pago", data_pagamento: "2026-03-11", valor_pago_centavos: 10000 }], cfg);
+    c = gravarTitulos(db, 2, [{ ...base, id: "a", situacao: "pago", data_pagamento: "2026-03-11", valor_pago_centavos: 10000 }], cfg);
     expect(c.atualizados).toBe(1);
-    [l] = listarLancamentos(db, { unidades: [1, 2] });
+    l = listarLancamentos(db, { unidades: [2] })[0];
     expect(l).toMatchObject({ status: "pago", data_pagamento: "2026-03-11", categoria_id: 12, observacao: "ok" });
 
     // sem mudança: nada a atualizar
-    expect(gravarTitulos(db, [{ ...base, id: "a", situacao: "pago", data_pagamento: "2026-03-11", valor_pago_centavos: 10000 }], cfg).atualizados).toBe(0);
+    expect(gravarTitulos(db, 2, [{ ...base, id: "a", situacao: "pago", data_pagamento: "2026-03-11", valor_pago_centavos: 10000 }], cfg).atualizados).toBe(0);
 
-    // unidade padrão para títulos sem filial
-    expect(gravarTitulos(db, [{ ...base, id: "c", store_id: null, situacao: "aberto" }], { ...cfg, unidadePadraoId: 1 }).criados).toBe(1);
-
-    // cancelado no Octagym: some daqui
-    expect(gravarTitulos(db, [{ ...base, id: "a", situacao: "cancelado" }], cfg).removidos).toBe(1);
-    expect(listarLancamentos(db, { unidades: [1, 2] }).map((x) => x.import_chave)).toEqual(["octagym:c"]);
+    // cancelado no Octagym: some daqui (só da unidade daquela chave)
+    expect(gravarTitulos(db, 2, [{ ...base, id: "a", situacao: "cancelado" }], cfg).removidos).toBe(1);
+    expect(listarLancamentos(db, { unidades: [1, 2] }).map((x) => x.import_chave)).toEqual(["octagym:1:a"]);
   });
 });
 
 // ---------- servidor MCP falso, no formato documentado pelo Octagym ----------
 
 const CHAVE = "og_live_teste";
+const CHAVE_2 = "og_live_unidade2";
+const TITULOS_2 = [{ id: "u2-1", type: "receivable", amount_cents: 5000, due_date: "2026-03-20", status: "open", description: "Diária", store_id: "loja-norte" }];
 const TITULOS = Array.from({ length: 7 }, (_, i) => ({
   id: `tit-${i + 1}`,
   type: i === 6 ? "payable" : "receivable",
@@ -114,10 +134,10 @@ const TITULOS = Array.from({ length: 7 }, (_, i) => ({
 }));
 let chamadas: Record<string, unknown>[] = [];
 
-function criarServidorFalso() {
+function criarServidorFalso(titulos: typeof TITULOS | typeof TITULOS_2, loja: string) {
   const servidor = new McpServer({ name: "octagym-falso", version: "1.0.0" });
   servidor.registerTool("list_stores", { description: "Unidades (filiais) da empresa.", inputSchema: {} }, async () => ({
-    content: [{ type: "text", text: JSON.stringify({ stores: [{ id: "loja-centro", name: "Olimpo Centro" }, { id: "loja-norte", name: "Olimpo Norte" }] }) }],
+    content: [{ type: "text", text: JSON.stringify({ stores: [{ id: "loja", name: loja }] }) }],
   }));
   servidor.registerTool(
     "list_financial_titles",
@@ -127,7 +147,7 @@ function criarServidorFalso() {
     },
     async (args) => {
       chamadas.push(args);
-      const filtrados = TITULOS.filter((t) => (!args.type || t.type === args.type) && (!args.due_date_from || t.due_date >= args.due_date_from) && (!args.due_date_to || t.due_date <= args.due_date_to));
+      const filtrados = (titulos as typeof TITULOS).filter((t) => (!args.type || t.type === args.type) && (!args.due_date_from || t.due_date >= args.due_date_from) && (!args.due_date_to || t.due_date <= args.due_date_to));
       const tam = args.page_size ?? 20;
       const pagina = args.page ?? 1;
       return { content: [{ type: "text", text: JSON.stringify({ data: filtrados.slice((pagina - 1) * tam, pagina * tam), pagination: { page: pagina, total: filtrados.length } }) }] };
@@ -142,7 +162,8 @@ let url = "";
 
 beforeAll(async () => {
   httpServer = http.createServer(async (req, res) => {
-    if (req.headers.authorization !== `Bearer ${CHAVE}`) {
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${CHAVE}` && auth !== `Bearer ${CHAVE_2}`) {
       res.writeHead(401, { "content-type": "application/json" }).end(JSON.stringify({ error: "invalid api key" }));
       return;
     }
@@ -152,7 +173,7 @@ beforeAll(async () => {
       req.on("end", () => ok(s));
     });
     // modo sem sessão: um servidor/transporte por requisição
-    const servidor = criarServidorFalso();
+    const servidor = auth === `Bearer ${CHAVE}` ? criarServidorFalso(TITULOS, "Olimpo Centro") : criarServidorFalso(TITULOS_2, "Olimpo Norte");
     const transporte = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     res.on("close", () => {
       transporte.close();
@@ -173,38 +194,49 @@ describe("conexão e sincronização com o conector MCP", () => {
     await expect(conectar("", url)).rejects.toThrow(/não configurada/);
   });
 
-  it("testa, liga as filiais e sincroniza só as contas a receber, com paginação", async () => {
+  it("testa e sincroniza só as contas a receber de cada unidade, com paginação", async () => {
     const db = abrirBanco(":memory:");
     salvarConfig(db, { ...lerConfig(db), diasPassados: 30, diasFuturos: 30 });
+    salvarChave(db, 1, CHAVE);
+    salvarChave(db, 2, CHAVE_2);
     const con = await conectar(CHAVE, url);
     try {
-      // teste: só lê a 1ª página, registra filiais e não grava lançamentos
+      // teste: só lê a 1ª página e não grava lançamentos
       chamadas = [];
-      const teste = await executar(db, con, { apenasTestar: true, hoje: "2026-03-15" });
+      const teste = await executar(db, con, 1, { apenasTestar: true, hoje: "2026-03-15" });
       expect(teste.ok).toBe(true);
+      expect(teste.empresa).toBe("Olimpo Centro");
       expect(teste.ferramentasFinanceiras).toEqual(expect.arrayContaining(["list_financial_titles", "list_stores"]));
       expect(teste.argumentosUsados).toEqual(expect.arrayContaining(["type=receivable", "due_date_from=2026-02-13", "due_date_to=2026-04-14"]));
       expect(teste.exemploBruto).toMatchObject({ counterparty: { name: "•••" } });
       expect(listarLancamentos(db, { unidades: [1, 2] })).toHaveLength(0);
-      expect(listarLojas(db).map((l) => l.nome)).toEqual(["Olimpo Centro", "Olimpo Norte"]);
       expect(chamadas).toHaveLength(1);
+      expect(listarChaves(db).find((c) => c.unidade_id === 1)?.empresa).toBe("Olimpo Centro");
 
-      ligarLoja(db, "loja-centro", 1);
-      ligarLoja(db, "loja-norte", 2);
       chamadas = [];
-      const d = await executar(db, con, { hoje: "2026-03-15" });
+      const d = await executar(db, con, 1, { hoje: "2026-03-15" });
       expect(d.contagem).toMatchObject({ lidos: 6, criados: 6, atualizados: 0, ignorados: 0 });
       expect(chamadas.map((c) => c.page)).toEqual([1, 2, 3]); // 6 títulos em páginas de 3 (máximo do schema); a 3ª vem vazia e encerra
-      const l = listarLancamentos(db, { unidades: [1, 2] });
-      expect(l.filter((x) => x.unidade_id === 1)).toHaveLength(4);
+      let l = listarLancamentos(db, { unidades: [1, 2] });
+      expect(l.every((x) => x.unidade_id === 1)).toBe(true);
       expect(l.filter((x) => x.status === "pago")).toHaveLength(3);
       expect(l[1]).toMatchObject({ fornecedor: "Aluno 2", data_pagamento: "2026-03-11", valor_pago_centavos: 10001 });
 
       // segunda rodada: nada muda
-      const d2 = await executar(db, con, { hoje: "2026-03-15" });
-      expect(d2.contagem).toMatchObject({ criados: 0, atualizados: 0 });
+      expect((await executar(db, con, 1, { hoje: "2026-03-15" })).contagem).toMatchObject({ criados: 0, atualizados: 0 });
     } finally {
       await con.fechar();
     }
+
+    // a chave da unidade 2 traz só os títulos da unidade 2
+    const con2 = await conectar(CHAVE_2, url);
+    try {
+      const d2 = await executar(db, con2, 2, { hoje: "2026-03-15" });
+      expect(d2).toMatchObject({ ok: true, empresa: "Olimpo Norte", contagem: { criados: 1 } });
+    } finally {
+      await con2.fechar();
+    }
+    const l2 = listarLancamentos(db, { unidades: [2] });
+    expect(l2.map((x) => [x.descricao, x.import_chave])).toEqual([["Diária", "octagym:2:u2-1"]]);
   });
 });

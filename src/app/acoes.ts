@@ -25,7 +25,7 @@ import { apagarComprovantes, destinoSeguro, lerLancamento, lerPagamento, num, nu
 import { parseValor } from "@/lib/money";
 import { atualizarUsuario, criarUsuario, redefinirSenha, trocarPropriaSenha } from "@/lib/usuarios";
 import { rodar as rodarOctagym } from "@/lib/octagym/servico";
-import { ligarLoja, lerConfig as lerConfigOctagym, salvarConfig as salvarConfigOctagym } from "@/lib/octagym/sincronizacao";
+import { lerConfig as lerConfigOctagym, removerChave, salvarChave, salvarConfig as salvarConfigOctagym } from "@/lib/octagym/sincronizacao";
 
 // ---------- sessão ----------
 
@@ -255,19 +255,33 @@ export async function acaoSalvarOctagym(fd: FormData) {
     diasPassados: num(fd, "dias_passados") ?? atual.diasPassados,
     diasFuturos: num(fd, "dias_futuros") ?? atual.diasFuturos,
     categoriaPadraoId: num(fd, "categoria_id"),
-    unidadePadraoId: num(fd, "unidade_padrao"),
   });
-  for (const [k, v] of fd.entries()) {
-    if (!k.startsWith("loja:") || typeof v !== "string") continue;
-    ligarLoja(db, k.slice(5), Number(v) || null);
-  }
   revalidatePath("/octagym");
   voltar("/octagym", "ok", "Configuração da integração salva.");
 }
 
-export async function acaoTestarOctagym() {
+export async function acaoSalvarChaveOctagym(fd: FormData) {
   await exigirAdmin();
-  const r = await rodarOctagym("teste");
+  const unidade = num(fd, "unidade_id");
+  if (!unidade) voltar("/octagym", "erro", "Unidade inválida.");
+  const chave = typeof fd.get("chave") === "string" ? (fd.get("chave") as string) : "";
+  const erro = salvarChave(getDb(), unidade, chave);
+  if (erro) voltar("/octagym", "erro", erro);
+  revalidatePath("/octagym");
+  voltar("/octagym", "ok", "Chave salva. Clique em “Testar” para conferir.");
+}
+
+export async function acaoRemoverChaveOctagym(fd: FormData) {
+  await exigirAdmin();
+  const unidade = num(fd, "unidade_id");
+  if (unidade) removerChave(getDb(), unidade);
+  revalidatePath("/octagym");
+  voltar("/octagym", "ok", "Chave removida. Os lançamentos já importados foram mantidos.");
+}
+
+export async function acaoTestarOctagym(fd: FormData) {
+  await exigirAdmin();
+  const r = await rodarOctagym("teste", num(fd, "unidade_id") ?? undefined);
   revalidatePath("/octagym");
   voltar("/octagym", r.ok ? "ok" : "erro", r.mensagem);
 }

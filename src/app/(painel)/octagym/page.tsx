@@ -1,9 +1,15 @@
-import { acaoSalvarOctagym, acaoSincronizarOctagym, acaoTestarOctagym } from "../../acoes";
+import {
+  acaoRemoverChaveOctagym,
+  acaoSalvarChaveOctagym,
+  acaoSalvarOctagym,
+  acaoSincronizarOctagym,
+  acaoTestarOctagym,
+} from "../../acoes";
 import { exigirContexto } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { listarCategorias, listarUnidades } from "@/lib/lancamentos";
-import { chaveConfigurada, sincronizando } from "@/lib/octagym/servico";
-import { lerConfig, lerDiagnostico, listarExecucoes, listarLojas } from "@/lib/octagym/sincronizacao";
+import { listarCategorias } from "@/lib/lancamentos";
+import { sincronizando } from "@/lib/octagym/servico";
+import { lerConfig, lerDiagnosticos, listarChaves, listarExecucoes, type Diagnostico } from "@/lib/octagym/sincronizacao";
 import { Mensagens, type SP } from "../../ui";
 
 const GATILHO: Record<string, string> = { automatico: "Automática", manual: "Manual", teste: "Teste" };
@@ -14,17 +20,67 @@ function dataHora(s: string | null | undefined): string {
   return d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" });
 }
 
+const pre = { whiteSpace: "pre-wrap", wordBreak: "break-word", background: "var(--bg)", padding: 10, borderRadius: 8, maxHeight: 360, overflow: "auto" } as const;
+
+function PainelDiagnostico({ nome, d }: { nome: string; d: Diagnostico }) {
+  return (
+    <details className="card" style={{ marginBottom: 12 }} open={!d.ok}>
+      <summary>
+        Diagnóstico · {nome} ({dataHora(d.quando)}) {d.ok ? <span className="tag pago">OK</span> : <span className="tag vencido">Erro</span>}
+      </summary>
+      <div className="small" style={{ marginTop: 12, display: "grid", gap: 8 }}>
+        <div>
+          <strong>Resultado:</strong> {d.mensagem}
+        </div>
+        {d.empresa && (
+          <div>
+            <strong>Filial no Octagym:</strong> {d.empresa}
+          </div>
+        )}
+        <div>
+          <strong>Ferramentas financeiras liberadas pela chave:</strong> {d.ferramentasFinanceiras.join(", ") || "nenhuma"}
+        </div>
+        <div>
+          <strong>Parâmetros de list_financial_titles:</strong> {d.parametrosTitulos.join(", ") || "—"}
+        </div>
+        <div>
+          <strong>Argumentos usados:</strong> {d.argumentosUsados.join(" · ") || "—"}
+        </div>
+        {d.contagem && Object.keys(d.contagem.motivosIgnorados).length > 0 && (
+          <div>
+            <strong>Motivos dos ignorados:</strong>{" "}
+            {Object.entries(d.contagem.motivosIgnorados)
+              .map(([m, n]) => `${m} (${n})`)
+              .join(" · ")}
+          </div>
+        )}
+        {d.exemploBruto != null && (
+          <div className="grade-2" style={{ marginBottom: 0 }}>
+            <div>
+              <strong>Exemplo recebido do Octagym (dados pessoais ocultos)</strong>
+              <pre style={pre}>{JSON.stringify(d.exemploBruto, null, 2)}</pre>
+            </div>
+            <div>
+              <strong>Como o sistema interpretou</strong>
+              <pre style={pre}>{JSON.stringify(d.exemploInterpretado, null, 2)}</pre>
+            </div>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export default async function Octagym({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
   await exigirContexto("admin");
   const db = getDb();
   const cfg = lerConfig(db);
-  const temChave = chaveConfigurada();
-  const lojas = listarLojas(db);
-  const unidades = listarUnidades(db);
+  const chaves = listarChaves(db);
+  const comChave = chaves.filter((c) => c.final);
   const categorias = listarCategorias(db, "receita");
   const execucoes = listarExecucoes(db);
-  const diag = lerDiagnostico(db);
+  const diags = lerDiagnosticos(db);
   const ultimaOk = execucoes.find((e) => e.ok === 1 && e.gatilho !== "teste");
 
   return (
@@ -33,33 +89,102 @@ export default async function Octagym({ searchParams }: { searchParams: SP }) {
       <div className="cabecalho">
         <div>
           <h1>Integração Octagym</h1>
-          <div className="muted">Importa automaticamente as contas a receber do Octagym como receitas, por unidade.</div>
+          <div className="muted">Importa automaticamente as contas a receber do Octagym como receitas. Cada unidade usa a sua própria chave.</div>
         </div>
-        <form className="acoes">
-          <button formAction={acaoTestarOctagym} type="submit" disabled={!temChave}>
-            Testar conexão
-          </button>
-          <button formAction={acaoSincronizarOctagym} type="submit" className="primario" disabled={!temChave}>
+        <form action={acaoSincronizarOctagym}>
+          <button type="submit" className="primario" disabled={!comChave.length}>
             Sincronizar agora
           </button>
         </form>
       </div>
 
       <div className="grade">
-        <div className={`card kpi ${temChave ? "" : "alerta"}`}>
-          <div className="rotulo">Chave da API</div>
-          <div className="valor" style={{ fontSize: "1.1rem" }}>{temChave ? "Configurada" : "Não configurada"}</div>
-          <div className="det">{temChave ? "lida de OCTAGYM_API_KEY no servidor" : "coloque OCTAGYM_API_KEY no .env do servidor (veja abaixo)"}</div>
+        <div className={`card kpi ${comChave.length ? "" : "alerta"}`}>
+          <div className="rotulo">Chaves cadastradas</div>
+          <div className="valor" style={{ fontSize: "1.1rem" }}>
+            {comChave.length} de {chaves.length} unidades
+          </div>
+          <div className="det">{comChave.length ? "só as unidades com chave são sincronizadas" : "cadastre a chave de cada unidade abaixo"}</div>
         </div>
         <div className="card kpi">
           <div className="rotulo">Sincronização automática</div>
           <div className="valor" style={{ fontSize: "1.1rem" }}>{cfg.ativo ? `Ligada · a cada ${cfg.intervaloMin} min` : "Desligada"}</div>
           <div className="det">{sincronizando() ? "sincronizando agora…" : `última com sucesso: ${dataHora(ultimaOk?.fim)}`}</div>
         </div>
-        <div className="card kpi">
-          <div className="rotulo">Filiais do Octagym</div>
-          <div className="valor" style={{ fontSize: "1.1rem" }}>{lojas.length ? `${lojas.filter((l) => l.unidade_id).length} de ${lojas.length} ligadas` : "—"}</div>
-          <div className="det">{lojas.length ? "ligue cada filial a uma unidade abaixo" : "aparecem após o primeiro teste de conexão"}</div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h2>Chave de cada unidade</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          No Octagym de cada unidade: <strong>Configurações → Desenvolvedor → Nova Chave</strong>, marque só <strong>Financeiro → Leitura</strong> e cole a
+          chave aqui (começa com <code>og_live_</code>). Por segurança, a chave salva não é exibida de novo, só os últimos caracteres.
+        </p>
+        <div className="tabela-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Unidade</th>
+                <th>Chave</th>
+                <th>Cadastrar / trocar</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {chaves.map((c) => {
+                const d = diags.get(c.unidade_id);
+                return (
+                  <tr key={c.unidade_id}>
+                    <td>
+                      <strong>{c.unidade_nome}</strong>
+                      {c.empresa && <div className="muted small">Octagym: {c.empresa}</div>}
+                    </td>
+                    <td className="small">
+                      {c.final ? (
+                        <>
+                          <code>og_…{c.final}</code>
+                          <div>{d ? d.ok ? <span className="tag pago">funcionando</span> : <span className="tag vencido">com erro</span> : <span className="tag">não testada</span>}</div>
+                        </>
+                      ) : (
+                        <span className="muted">não cadastrada</span>
+                      )}
+                    </td>
+                    <td>
+                      <form action={acaoSalvarChaveOctagym} className="acoes" style={{ flexWrap: "nowrap" }}>
+                        <input type="hidden" name="unidade_id" value={c.unidade_id} />
+                        <input
+                          type="password"
+                          name="chave"
+                          required
+                          placeholder="og_live_…"
+                          autoComplete="off"
+                          spellCheck={false}
+                          aria-label={`Chave do Octagym para ${c.unidade_nome}`}
+                          style={{ minWidth: 0, width: 200 }}
+                        />
+                        <button type="submit">Salvar</button>
+                      </form>
+                    </td>
+                    <td>
+                      {c.final && (
+                        <div className="acoes" style={{ flexWrap: "nowrap" }}>
+                          <form action={acaoTestarOctagym}>
+                            <input type="hidden" name="unidade_id" value={c.unidade_id} />
+                            <button type="submit">Testar</button>
+                          </form>
+                          <form action={acaoRemoverChaveOctagym}>
+                            <input type="hidden" name="unidade_id" value={c.unidade_id} />
+                            <button type="submit" className="link">
+                              remover
+                            </button>
+                          </form>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -92,47 +217,6 @@ export default async function Octagym({ searchParams }: { searchParams: SP }) {
               ))}
             </select>
           </label>
-          <label>
-            Unidade para títulos sem filial
-            <select name="unidade_padrao" defaultValue={cfg.unidadePadraoId ?? ""}>
-              <option value="">Ignorar esses títulos</option>
-              {unidades.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.nome}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {lojas.length > 0 && (
-            <fieldset className="inteiro">
-              <legend className="muted small">Filial do Octagym → unidade do sistema</legend>
-              <div className="tabela-wrap">
-                <table>
-                  <tbody>
-                    {lojas.map((l) => (
-                      <tr key={l.store_id}>
-                        <td>
-                          {l.nome}
-                          <div className="muted small">{l.store_id}</div>
-                        </td>
-                        <td>
-                          <select name={`loja:${l.store_id}`} defaultValue={l.unidade_id ?? ""} aria-label={`Unidade para ${l.nome}`}>
-                            <option value="">Não importar</option>
-                            {unidades.map((u) => (
-                              <option key={u.id} value={u.id}>
-                                {u.nome}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </fieldset>
-          )}
           <div className="inteiro">
             <button className="primario" type="submit">
               Salvar configuração
@@ -171,7 +255,13 @@ export default async function Octagym({ searchParams }: { searchParams: SP }) {
                     <td className="small">{GATILHO[e.gatilho] ?? e.gatilho}</td>
                     <td className="small">
                       {e.ok == null ? <span className="tag">em andamento</span> : e.ok ? <span className="tag pago">OK</span> : <span className="tag vencido">Erro</span>}
-                      {e.mensagem && <div className={e.ok ? "muted" : "perigo"}>{e.mensagem}</div>}
+                      {e.mensagem && (
+                        <div className={e.ok ? "muted" : "perigo"}>
+                          {e.mensagem.split(" | ").map((m, i) => (
+                            <div key={i}>{m}</div>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="num">{e.lidos}</td>
                     <td className="num">{e.criados}</td>
@@ -186,70 +276,11 @@ export default async function Octagym({ searchParams }: { searchParams: SP }) {
         )}
       </div>
 
-      {diag && (
-        <details className="card" style={{ marginBottom: 16 }} open={!diag.ok}>
-          <summary>Diagnóstico do último teste / sincronização ({dataHora(diag.quando)})</summary>
-          <div className="small" style={{ marginTop: 12, display: "grid", gap: 8 }}>
-            <div>
-              <strong>Resultado:</strong> {diag.mensagem}
-            </div>
-            <div>
-              <strong>Ferramentas financeiras liberadas pela chave:</strong> {diag.ferramentasFinanceiras.join(", ") || "nenhuma"}
-            </div>
-            <div>
-              <strong>Parâmetros de list_financial_titles:</strong> {diag.parametrosTitulos.join(", ") || "—"}
-            </div>
-            <div>
-              <strong>Argumentos usados:</strong> {diag.argumentosUsados.join(" · ") || "—"}
-            </div>
-            {diag.contagem && Object.keys(diag.contagem.motivosIgnorados).length > 0 && (
-              <div>
-                <strong>Motivos dos ignorados:</strong>{" "}
-                {Object.entries(diag.contagem.motivosIgnorados)
-                  .map(([m, n]) => `${m} (${n})`)
-                  .join(" · ")}
-              </div>
-            )}
-            {diag.exemploBruto != null && (
-              <div className="grade-2" style={{ marginBottom: 0 }}>
-                <div>
-                  <strong>Exemplo recebido do Octagym (dados pessoais ocultos)</strong>
-                  <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", background: "var(--bg)", padding: 10, borderRadius: 8, maxHeight: 360, overflow: "auto" }}>
-                    {JSON.stringify(diag.exemploBruto, null, 2)}
-                  </pre>
-                </div>
-                <div>
-                  <strong>Como o sistema interpretou</strong>
-                  <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", background: "var(--bg)", padding: 10, borderRadius: 8, maxHeight: 360, overflow: "auto" }}>
-                    {JSON.stringify(diag.exemploInterpretado, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            )}
-          </div>
-        </details>
-      )}
-
-      {!temChave && (
-        <div className="card small">
-          <h2>Como ligar a integração</h2>
-          <ol style={{ paddingLeft: 18, margin: 0, display: "grid", gap: 6 }}>
-            <li>
-              No Octagym: <strong>Configurações → Desenvolvedor → Nova Chave</strong>, marque só <strong>Financeiro → Leitura</strong> e copie a chave
-              (começa com <code>og_live_</code>).
-            </li>
-            <li>
-              No servidor, edite <code>/opt/olimpogym/.env</code> e acrescente a linha <code>OCTAGYM_API_KEY=og_live_…</code>
-            </li>
-            <li>
-              Reinicie: <code>cd /opt/olimpogym &amp;&amp; docker compose up -d --force-recreate</code>
-            </li>
-            <li>
-              Volte aqui, clique em <strong>Testar conexão</strong>, ligue as filiais às unidades, marque “Sincronizar automaticamente” e salve.
-            </li>
-          </ol>
-        </div>
-      )}
+      {chaves
+        .filter((c) => diags.has(c.unidade_id))
+        .map((c) => (
+          <PainelDiagnostico key={c.unidade_id} nome={c.unidade_nome} d={diags.get(c.unidade_id)!} />
+        ))}
     </>
   );
 }
